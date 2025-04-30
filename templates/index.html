@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alchemy Bot</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧪 Alchemy Bot 🧪</h1>
+        </header>
+
+        <!-- Mode Selection -->
+        <section id="mode-selection" class="mode-selection">
+            <h2>Choose Operation Mode</h2>
+            <button class="btn btn-primary" data-mode="recipe">🧪 Find Recipe</button>
+            <button class="btn btn-success" data-mode="knapsack">💰 Maximize Price</button>
+        </section>
+
+        <!-- Initial Effect Selection -->
+        <section id="initial-selection" class="effect-selection hidden">
+            <h2 id="initial-header">Select Effects You Currently Have</h2>
+            <div class="effect-grid" id="initial-effects-grid">
+                <!-- Effects will be populated dynamically -->
+            </div>
+            <div class="pagination">
+                <button class="btn btn-light" id="prev-page-initial" disabled>⬅️ Prev</button>
+                <button class="btn btn-light" id="next-page-initial">Next ➡️</button>
+            </div>
+            <button class="btn btn-primary hidden" id="initial-done">🚀 Done</button>
+        </section>
+
+        <!-- Target Effect Selection (Only for Recipe Mode) -->
+        <section id="target-selection" class="effect-selection hidden">
+            <h2>Select Effects You Need To Achieve</h2>
+            <div class="effect-grid" id="target-effects-grid">
+                <!-- Effects will be populated dynamically -->
+            </div>
+            <div class="pagination">
+                <button class="btn btn-light" id="prev-page-target" disabled>⬅️ Prev</button>
+                <button class="btn btn-light" id="next-page-target">Next ➡️</button>
+            </div>
+            <button class="btn btn-primary hidden" id="target-done">🚀 Done</button>
+        </section>
+
+        <!-- Parameters for Knapsack Mode -->
+        <section id="parameter-selection" class="parameter-selection hidden">
+            <h2>Select Parameters</h2>
+            <div class="time-budget-selection">
+                <div class="parameter-group">
+                    <h3>Maximum Computation Time</h3>
+                    <button class="btn btn-light time-btn" data-time="3">3 seconds</button>
+                    <button class="btn btn-light time-btn" data-time="10">10 seconds</button>
+                    <button class="btn btn-light time-btn" data-time="30">30 seconds</button>
+                    <button class="btn btn-light time-btn" data-time="60">60 seconds</button>
+                </div>
+                <div class="parameter-group">
+                    <h3>Budget Limit</h3>
+                    <button class="btn btn-light budget-btn" data-budget="5">$5</button>
+                    <button class="btn btn-light budget-btn" data-budget="15">$15</button>
+                    <button class="btn btn-light budget-btn" data-budget="50">$50</button>
+                    <button class="btn btn-light budget-btn" data-budget="100">$100</button>
+                </div>
+            </div>
+            <button class="btn btn-success" id="calculate-btn">💰 Calculate Optimal Mix</button>
+        </section>
+
+        <!-- Loading Indicator -->
+        <section id="loading" class="loader hidden">
+            <p>⏳ Computing...</p>
+        </section>
+
+        <!-- Results Section -->
+        <section id="results" class="results hidden">
+            <h2 id="results-title">Results</h2>
+            <div id="results-content">
+                <!-- Results will be populated dynamically -->
+            </div>
+            <button class="btn btn-warning restart-btn" id="restart-btn">🔄 Restart</button>
+        </section>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Application state
+            const state = {
+                mode: null,
+                initialEffects: new Set(),
+                targetEffects: new Set(),
+                initialPage: 0,
+                targetPage: 0,
+                maxTime: 10,
+                budget: 50.0,
+                allEffects: [],
+                perPage: 9
+            };
+
+            // DOM elements
+            const sections = {
+                modeSelection: document.getElementById('mode-selection'),
+                initialSelection: document.getElementById('initial-selection'),
+                targetSelection: document.getElementById('target-selection'),
+                parameterSelection: document.getElementById('parameter-selection'),
+                loading: document.getElementById('loading'),
+                results: document.getElementById('results')
+            };
+			
+			// Set default selected buttons
+			document.querySelector('.time-btn[data-time="10"]').classList.add('selected');
+			document.querySelector('.budget-btn[data-budget="50"]').classList.add('selected');
+
+            // Fetch all effects
+            fetchEffects();
+
+            // Event Listeners
+            // Mode selection
+            document.querySelectorAll('[data-mode]').forEach(button => {
+                button.addEventListener('click', function() {
+                    state.mode = this.dataset.mode;
+                    sections.modeSelection.classList.add('hidden');
+                    sections.initialSelection.classList.remove('hidden');
+                    
+                    // Update header text based on mode
+                    const initialHeader = document.getElementById('initial-header');
+                    if (state.mode === 'recipe') {
+                        initialHeader.textContent = 'Select Effects You Currently Have:';
+                    } else {
+                        initialHeader.textContent = 'Select Your Initial Effects:';
+                    }
+                    
+                    renderEffectsGrid('initial');
+                });
+            });
+
+            // Initial effects done button
+            document.getElementById('initial-done').addEventListener('click', function() {
+                if (state.initialEffects.size === 0) {
+                    alert('Please select at least one initial effect!');
+                    return;
+                }
+
+                sections.initialSelection.classList.add('hidden');
+                
+                if (state.mode === 'recipe') {
+                    sections.targetSelection.classList.remove('hidden');
+                    renderEffectsGrid('target');
+                } else {
+                    sections.parameterSelection.classList.remove('hidden');
+                }
+            });
+
+            // Target effects done button
+            document.getElementById('target-done').addEventListener('click', function() {
+                if (state.targetEffects.size === 0) {
+                    alert('Please select at least one target effect!');
+                    return;
+                }
+
+                sections.targetSelection.classList.add('hidden');
+                sections.loading.classList.remove('hidden');
+                
+                // Find recipe
+                findRecipe();
+            });
+
+            // Time selection buttons
+			document.querySelectorAll('.time-btn').forEach(button => {
+				button.addEventListener('click', function() {
+					document.querySelectorAll('.time-btn').forEach(btn => {
+						btn.classList.remove('selected');
+					});
+					this.classList.add('selected');
+					state.maxTime = parseInt(this.dataset.time);
+				});
+			});
+
+			// Budget selection buttons
+			document.querySelectorAll('.budget-btn').forEach(button => {
+				button.addEventListener('click', function() {
+					document.querySelectorAll('.budget-btn').forEach(btn => {
+						btn.classList.remove('selected');
+					});
+					this.classList.add('selected');
+					state.budget = parseFloat(this.dataset.budget);
+				});
+			});
+
+            // Calculate button for knapsack mode
+            document.getElementById('calculate-btn').addEventListener('click', function() {
+                sections.parameterSelection.classList.add('hidden');
+                sections.loading.classList.remove('hidden');
+                
+                // Find optimal mix
+                solveKnapsack();
+            });
+
+            // Pagination buttons
+            document.getElementById('prev-page-initial').addEventListener('click', function() {
+                if (state.initialPage > 0) {
+                    state.initialPage--;
+                    renderEffectsGrid('initial');
+                }
+            });
+
+            document.getElementById('next-page-initial').addEventListener('click', function() {
+                const maxPage = Math.ceil(state.allEffects.length / state.perPage) - 1;
+                if (state.initialPage < maxPage) {
+                    state.initialPage++;
+                    renderEffectsGrid('initial');
+                }
+            });
+
+            document.getElementById('prev-page-target').addEventListener('click', function() {
+                if (state.targetPage > 0) {
+                    state.targetPage--;
+                    renderEffectsGrid('target');
+                }
+            });
+
+            document.getElementById('next-page-target').addEventListener('click', function() {
+                const maxPage = Math.ceil(state.allEffects.length / state.perPage) - 1;
+                if (state.targetPage < maxPage) {
+                    state.targetPage++;
+                    renderEffectsGrid('target');
+                }
+            });
+
+            // Restart button
+            document.getElementById('restart-btn').addEventListener('click', restart);
+
+            // Functions
+            function fetchEffects() {
+                fetch('/effects')
+                    .then(response => response.json())
+                    .then(effects => {
+                        state.allEffects = effects;
+                    })
+                    .catch(error => {
+                        console.error('Error fetching effects:', error);
+                    });
+            }
+
+            function renderEffectsGrid(type) {
+                const gridElement = document.getElementById(`${type}-effects-grid`);
+                const page = type === 'initial' ? state.initialPage : state.targetPage;
+                const selectedEffects = type === 'initial' ? state.initialEffects : state.targetEffects;
+                const doneButton = document.getElementById(`${type}-done`);
+                
+                // Clear grid
+                gridElement.innerHTML = '';
+                
+                // Calculate start and end indices
+                const start = page * state.perPage;
+                const end = Math.min(start + state.perPage, state.allEffects.length);
+                
+                // Add effect buttons
+                for (let i = start; i < end; i++) {
+                    const effect = state.allEffects[i];
+                    const button = document.createElement('button');
+                    button.className = `effect-btn ${selectedEffects.has(effect) ? 'selected' : ''}`;
+                    button.textContent = `${selectedEffects.has(effect) ? '✅' : '⚪'} ${effect}`;
+                    button.dataset.effect = effect;
+                    
+                    button.addEventListener('click', function() {
+                        const effect = this.dataset.effect;
+                        
+                        if (selectedEffects.has(effect)) {
+                            selectedEffects.delete(effect);
+                            this.classList.remove('selected');
+                            this.textContent = `⚪ ${effect}`;
+                        } else {
+                            selectedEffects.add(effect);
+                            this.classList.add('selected');
+                            this.textContent = `✅ ${effect}`;
+                        }
+                        
+                        // Show/hide done button
+                        if (selectedEffects.size > 0) {
+                            doneButton.classList.remove('hidden');
+                        } else {
+                            doneButton.classList.add('hidden');
+                        }
+                    });
+                    
+                    gridElement.appendChild(button);
+                }
+                
+                // Update pagination buttons
+                const prevButton = document.getElementById(`prev-page-${type}`);
+                const nextButton = document.getElementById(`next-page-${type}`);
+                
+                prevButton.disabled = page === 0;
+                nextButton.disabled = end >= state.allEffects.length;
+                
+                // Show/hide done button based on selections
+                if (selectedEffects.size > 0) {
+                    doneButton.classList.remove('hidden');
+                } else {
+                    doneButton.classList.add('hidden');
+                }
+            }
+
+            function findRecipe() {
+                const data = {
+                    initial: Array.from(state.initialEffects),
+                    target: Array.from(state.targetEffects)
+                };
+                
+                fetch('/find_recipe', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(response => response.json())
+                .then(result => {
+                    sections.loading.classList.add('hidden');
+                    displayRecipeResults(result);
+                    sections.results.classList.remove('hidden');
+                })
+                .catch(error => {
+                    console.error('Error finding recipe:', error);
+                    sections.loading.classList.add('hidden');
+                    alert('An error occurred while finding the recipe. Please try again.');
+                });
+            }
+
+            function solveKnapsack() {
+                const data = {
+                    initial: Array.from(state.initialEffects),
+                    max_time: state.maxTime,
+                    budget: state.budget
+                };
+                
+                fetch('/maximize_price', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(response => response.json())
+                .then(result => {
+                    sections.loading.classList.add('hidden');
+                    displayKnapsackResults(result);
+                    sections.results.classList.remove('hidden');
+                })
+                .catch(error => {
+                    console.error('Error solving knapsack problem:', error);
+                    sections.loading.classList.add('hidden');
+                    alert('An error occurred while calculating the optimal mix. Please try again.');
+                });
+            }
+
+            function displayRecipeResults(result) {
+                const resultsTitle = document.getElementById('results-title');
+                const resultsContent = document.getElementById('results-content');
+                
+                resultsTitle.textContent = '🔮 Recipe Result 🔮';
+                resultsContent.innerHTML = '';
+                
+                if (!result.success) {
+                    resultsContent.innerHTML = '<p>❌ Impossible to achieve these effects!</p>';
+                } else {
+                    if (result.already_has_target) {
+                        resultsContent.innerHTML += '<p>✅ You already have all target effects!</p>';
+                    } else if (result.path.length > 0) {
+                        resultsContent.innerHTML += '<p>✨ Recipe found:</p>';
+                        const list = document.createElement('div');
+                        result.path.forEach((step, i) => {
+                            const stepElement = document.createElement('div');
+                            stepElement.className = 'step';
+                            stepElement.textContent = `${i + 1}. ${step}`;
+                            list.appendChild(stepElement);
+                        });
+                        resultsContent.appendChild(list);
+                    }
+                    
+                    if (result.side_effects && result.side_effects.length > 0) {
+                        const sideEffects = document.createElement('div');
+                        sideEffects.className = 'side-effects';
+                        sideEffects.textContent = `⚠️ Side effects: ${result.side_effects.join(', ')}`;
+                        resultsContent.appendChild(sideEffects);
+                    } else {
+                        const noSideEffects = document.createElement('div');
+                        noSideEffects.className = 'side-effects';
+                        noSideEffects.textContent = '🍃 No side effects!';
+                        resultsContent.appendChild(noSideEffects);
+                    }
+                }
+            }
+
+            function displayKnapsackResults(result) {
+                const resultsTitle = document.getElementById('results-title');
+                const resultsContent = document.getElementById('results-content');
+                
+                resultsTitle.textContent = '💰 Maximization Result 💰';
+                resultsContent.innerHTML = '';
+                
+                // Parameters summary
+                const params = document.createElement('p');
+                params.textContent = `Budget: $${state.budget.toFixed(2)} | Computation time: ${state.maxTime}s`;
+                resultsContent.appendChild(params);
+                
+                // Ingredients list
+                if (result.ingredients.length === 0) {
+                    const noIngredients = document.createElement('p');
+                    noIngredients.textContent = '📋 No ingredients were used (initial effects only)';
+                    resultsContent.appendChild(noIngredients);
+                } else {
+                    const ingredientsTitle = document.createElement('p');
+                    ingredientsTitle.textContent = '📋 Optimal ingredients:';
+                    resultsContent.appendChild(ingredientsTitle);
+                    
+                    const ingredientsList = document.createElement('div');
+                    result.ingredients.forEach((ingredient, i) => {
+                        fetch('/ingredients')
+                            .then(response => response.json())
+                            .then(ingredientPrices => {
+                                const price = ingredientPrices[ingredient] || 0;
+                                const ingredientElement = document.createElement('div');
+                                ingredientElement.className = 'ingredient-item';
+                                ingredientElement.innerHTML = `<span>${i + 1}. ${ingredient}</span><span>$${price.toFixed(2)}</span>`;
+                                ingredientsList.appendChild(ingredientElement);
+                            });
+                    });
+                    resultsContent.appendChild(ingredientsList);
+                }
+                
+                // Final effects
+                const effectsTitle = document.createElement('p');
+                effectsTitle.textContent = '💎 Final effects:';
+                resultsContent.appendChild(effectsTitle);
+                
+                const effectsList = document.createElement('div');
+                effectsList.className = 'effect-list';
+                effectsList.textContent = result.effects.join(', ');
+                resultsContent.appendChild(effectsList);
+                
+                // Summary
+                const summary = document.createElement('div');
+                summary.className = 'summary';
+                summary.innerHTML = `
+                    <p>💰 Total cost: $${result.total_cost.toFixed(2)}</p>
+                    <p>✨ Effect multiplication: ${result.price_factor.toFixed(2)}</p>
+                `;
+                resultsContent.appendChild(summary);
+            }
+
+            function restart() {
+                // Reset state
+                state.initialEffects.clear();
+                state.targetEffects.clear();
+                state.initialPage = 0;
+                state.targetPage = 0;
+                state.maxTime = 10;
+                state.budget = 50.0;
+                
+                // Reset selected buttons
+                document.querySelectorAll('.time-btn, .budget-btn').forEach(btn => {
+                    btn.classList.remove('selected');
+                });
+                
+                // Reset UI
+                sections.results.classList.add('hidden');
+                sections.modeSelection.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
