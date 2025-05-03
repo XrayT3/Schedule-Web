@@ -396,15 +396,15 @@
             function displayKnapsackResults(result) {
                 const resultsTitle = document.getElementById('results-title');
                 const resultsContent = document.getElementById('results-content');
-                
+
                 resultsTitle.textContent = '💰 Maximization Result 💰';
                 resultsContent.innerHTML = '';
-                
+
                 // Parameters summary
                 const params = document.createElement('p');
                 params.textContent = `Budget: $${state.budget.toFixed(2)} | Computation time: ${state.maxTime}s`;
                 resultsContent.appendChild(params);
-                
+
                 // Ingredients list
                 if (result.ingredients.length === 0) {
                     const noIngredients = document.createElement('p');
@@ -414,32 +414,35 @@
                     const ingredientsTitle = document.createElement('p');
                     ingredientsTitle.textContent = '📋 Optimal ingredients:';
                     resultsContent.appendChild(ingredientsTitle);
-                    
+
                     const ingredientsList = document.createElement('div');
-                    result.ingredients.forEach((ingredient, i) => {
-                        fetch('/ingredients')
-                            .then(response => response.json())
-                            .then(ingredientPrices => {
+                    resultsContent.appendChild(ingredientsList);
+
+                    // First, fetch all ingredients prices at once
+                    fetch('/ingredients')
+                        .then(response => response.json())
+                        .then(ingredientPrices => {
+                            // Then create and append all ingredient elements in the correct order
+                            result.ingredients.forEach((ingredient, i) => {
                                 const price = ingredientPrices[ingredient] || 0;
                                 const ingredientElement = document.createElement('div');
                                 ingredientElement.className = 'ingredient-item';
                                 ingredientElement.innerHTML = `<span>${i + 1}. ${ingredient}</span><span>$${price.toFixed(2)}</span>`;
                                 ingredientsList.appendChild(ingredientElement);
                             });
-                    });
-                    resultsContent.appendChild(ingredientsList);
+                        });
                 }
-                
+
                 // Final effects
                 const effectsTitle = document.createElement('p');
                 effectsTitle.textContent = '💎 Final effects:';
                 resultsContent.appendChild(effectsTitle);
-                
+
                 const effectsList = document.createElement('div');
                 effectsList.className = 'effect-list';
                 effectsList.textContent = result.effects.join(', ');
                 resultsContent.appendChild(effectsList);
-                
+
                 // Summary
                 const summary = document.createElement('div');
                 summary.className = 'summary';
